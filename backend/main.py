@@ -1,10 +1,19 @@
-from fastapi import FastAPI,File, UploadFile,APIRouter
-from models import User,CoupletRequest,EvaluateRequest
+from fastapi import FastAPI, File, UploadFile
+from fastapi.middleware.cors import CORSMiddleware  # 加入 CORS 支持
+from models import CoupletRequest, EvaluateRequest
 from datetime import datetime, timezone
 from config import VERSION
 
-
 app = FastAPI()
+
+# 关键：添加 CORS 中间件
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],  # 本地开发用 *，上线建议写前端实际域名
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/api")
 def read_root():
@@ -16,7 +25,6 @@ def health():
         "status": "ok",
         "version": VERSION,
         "timestamp": datetime.now(timezone.utc).isoformat()
-
     }
 
 @app.post("/api/asr")
@@ -31,28 +39,26 @@ async def upload_audio(file: UploadFile = File(...)):
         content = await file.read()
         f.write(content)
 
-    # 返回文件名和类型等信息
+    # 返回文件名和类型等信息+模拟识别结果
     return {
         "code": 0,
         "msg": "ok",
         "data": {
-        "filename": file.filename,
-        "content_type": file.content_type,
-        "save_path": save_path,
-        "text": "山中相送罢"
-    }
-
+            "filename": file.filename,
+            "content_type": file.content_type,
+            "save_path": save_path,
+            "text": "山中相送罢"
+        }
     }
 
 @app.post("/api/couplet")
 def generate_couplet(req: CoupletRequest):
-    # 用 mock 数据返回，后续再接AI
     return {
         "code": 0,
         "msg": "ok",
         "data": {
             "up_text": req.text,
-            "down_text": "日暮掩柴扉"  # 你可以写死一条，或者简单拼接
+            "down_text": "日暮掩柴扉"
         }
     }
 
