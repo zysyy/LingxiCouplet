@@ -16,17 +16,32 @@
         <label>下联：</label>
         <span>{{ downText }}</span>
       </div>
+  
+      <button
+        @click="evaluateCouplet"
+        :disabled="!upText || !downText"
+        style="margin-top: 10px;"
+      >
+        评分
+      </button>
+      <div v-if="evalResult" style="margin-top: 16px;">
+        <div>总分：{{ evalResult.score }}</div>
+        <div>对仗分：{{ evalResult.duizhang_score }}</div>
+        <div>平仄分：{{ evalResult.pingze_score }}</div>
+        <div>详情：{{ evalResult.detail }}</div>
+      </div>
     </div>
   </template>
   
   <script setup lang="ts">
   import { ref } from 'vue'
   import axios from 'axios'
-  import AudioRecorder from './AudioRecorder.vue' // 注意路径和名字
+  import AudioRecorder from './AudioRecorder.vue'
   
-  const upText = ref('')     
+  const upText = ref('')
   const downText = ref('')
   const loading = ref(false)
+  const evalResult = ref<any>(null)
   
   async function generateCouplet() {
     if (!upText.value) return
@@ -40,7 +55,19 @@
     loading.value = false
   }
   
-  // 语音识别的回调
+  async function evaluateCouplet() {
+    if (!upText.value || !downText.value) return
+    try {
+      const res = await axios.post('/api/evaluate', {
+        up_text: upText.value,
+        down_text: downText.value
+      })
+      evalResult.value = res.data.data
+    } catch (e) {
+      evalResult.value = { detail: '评分失败' }
+    }
+  }
+  
   function onRecognized(text: string) {
     upText.value = text
   }
