@@ -11,6 +11,7 @@
   <script setup>
   import { ref } from 'vue'
   import axios from 'axios'
+  const emit = defineEmits(['recognized']) // 加这一行
   
   const isRecording = ref(false)
   const mediaRecorder = ref(null)
@@ -52,9 +53,11 @@
         headers: { 'Content-Type': 'multipart/form-data' }
       })
       asrResult.value = response.data.data.text
+      emit('recognized', asrResult.value)   // <<<<<< 这里
     } catch (error) {
       asrResult.value = '上传或识别失败'
     }
   }
+
   </script>
   

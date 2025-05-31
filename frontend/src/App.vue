@@ -1,6 +1,7 @@
 <template>
-  <AudioRecorder />
+  <CoupletPanel />
 </template>
-<script setup>
-import AudioRecorder from './components/AudioRecorder.vue'
+
+<script setup lang="ts">
+import CoupletPanel from './components/CoupletPanel.vue'
 </script>
