@@ -56,40 +56,12 @@ POST /api/evaluate
 ```
 
 ### 环境变量说明
-- .env 请勿上传，模板见 .env.example
+- .env 请勿上传，模板见下文
 
 - 百度 API、DeepSeek API Key 需自行申请填写
 
 ### 目录结构
 ```
-.
-├── backend
-│   ├── __pycache__
-│   ├── config.py
-│   ├── main.py
-│   ├── models.py
-│   ├── requirements.txt
-│   └── uploads
-├── data
-│   ├── duilian_crawler_and_cleaning.ipynb
-│   ├── duilian.json
-│   └── raw.html
-├── frontend
-│   ├── index.html
-│   ├── node_modules
-│   ├── package-lock.json
-│   ├── package.json
-│   ├── public
-│   ├── README.md
-│   ├── src
-│   ├── tsconfig.app.json
-│   ├── tsconfig.json
-│   ├── tsconfig.node.json
-│   └── vite.config.ts
-└── README.md
-
-9 directories, 16 files
-(duilian-backend) (base) zy@zydeMacBook-Air LingxiCouplet % tree -L 3
 LingxiCouplet/
 ├── backend/                        # 后端代码（FastAPI）
 │   ├── config.py                   # 配置项（如版本/常量等）
