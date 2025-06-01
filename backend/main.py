@@ -36,7 +36,8 @@ app.add_middleware(
 )
 
 def clean_punctuation(text: str) -> str:
-    """去除文本结尾标点，仅用于对联模式"""
+    """去除文本结尾标点，去除文字前面注释字样，仅用于对联模式"""
+    text = re.sub(r"^(下联|下句)[：:\s]", "", text)
     return re.sub(r'[，。！？、,.!?;；:：~～\s]+$', '', text)
 
 def ask_deepseek(up_text: str) -> str:
