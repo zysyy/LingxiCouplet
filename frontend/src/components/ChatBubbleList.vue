@@ -10,27 +10,12 @@
         (msg.type === 'explain' && msg.role === 'ai') ? 'bubble-explain-wrap' : '',
       ]"
     >
-      <!-- prefix 题注（赏析的前缀也区分 user/ai）-->
-      <span
-        v-if="msg.type === 'up'"
-        class="bubble-prefix"
-      >[上联]</span>
-      <span
-        v-else-if="msg.type === 'down'"
-        class="bubble-prefix"
-      >[下联]</span>
-      <span
-        v-else-if="msg.type === 'evaluate'"
-        class="bubble-prefix evaluate-prefix"
-      >[评分]</span>
-      <span
-        v-else-if="msg.type === 'explain'"
-        class="bubble-prefix explain-prefix"
-      >[赏析]</span>
-      <span
-        v-else-if="msg.type === 'system'"
-        class="bubble-prefix"
-      >[系统]</span>
+      <!-- prefix 题注 -->
+      <span v-if="msg.type === 'up'" class="bubble-prefix">[上联]</span>
+      <span v-else-if="msg.type === 'down'" class="bubble-prefix">[下联]</span>
+      <span v-else-if="msg.type === 'evaluate'" class="bubble-prefix evaluate-prefix">[评分]</span>
+      <span v-else-if="msg.type === 'explain'" class="bubble-prefix explain-prefix">[赏析]</span>
+      <span v-else-if="msg.type === 'system'" class="bubble-prefix">[系统]</span>
 
       <!-- AI 思考中... 动画 -->
       <template v-if="msg.type === 'thinking'">
@@ -43,22 +28,38 @@
         </span>
       </template>
 
-      <!-- 评分气泡结构化展示 -->
+      <!-- 评分气泡结构化展示（100分制换算+原始分显示） -->
       <template v-else-if="msg.type === 'evaluate'">
         <div class="bubble-evaluate">
           <template v-if="typeof msg.text === 'object' && msg.text !== null">
             <div class="score-table">
               <div class="score-row">
                 <div class="score-label">总分</div>
-                <div class="score-value">{{ msg.text.score }}</div>
+                <div class="score-value">
+                  {{ normScore(msg.text.score, MAX_SCORE.total) }}/{{ MAX_SCORE.total }}
+                  <span class="score-raw">({{ msg.text.score }}/{{ MAX_SCORE.total }})</span>
+                </div>
               </div>
               <div class="score-row">
                 <div class="score-label">对仗分</div>
-                <div class="score-value">{{ msg.text.duizhang_score }}</div>
+                <div class="score-value">
+                  {{ normScore(msg.text.duizhang_score, MAX_SCORE.duizhang) }}/100
+                  <span class="score-raw">({{ msg.text.duizhang_score }}/{{ MAX_SCORE.duizhang }})</span>
+                </div>
               </div>
               <div class="score-row">
                 <div class="score-label">平仄分</div>
-                <div class="score-value">{{ msg.text.pingze_score }}</div>
+                <div class="score-value">
+                  {{ normScore(msg.text.pingze_score, MAX_SCORE.pingze) }}/100
+                  <span class="score-raw">({{ msg.text.pingze_score }}/{{ MAX_SCORE.pingze }})</span>
+                </div>
+              </div>
+              <div v-if="msg.text.content_score !== undefined && msg.text.content_score !== null" class="score-row">
+                <div class="score-label">内容分</div>
+                <div class="score-value">
+                  {{ normScore(msg.text.content_score, MAX_SCORE.content) }}/100
+                  <span class="score-raw">({{ msg.text.content_score }}/{{ MAX_SCORE.content }})</span>
+                </div>
               </div>
             </div>
             <div class="score-detail">
@@ -66,14 +67,18 @@
             </div>
           </template>
           <template v-else>
-            <div v-for="line in msg.text.split(/\n/)" :key="line">{{ line }}</div>
+            <div v-for="line in (typeof msg.text === 'string' ? msg.text.split(/\n/) : [])" :key="line">{{ line }}</div>
           </template>
         </div>
       </template>
 
-      <!-- 赏析（explain）AI 气泡支持 markdown 渲染 -->
+      <!-- 赏析（explain）AI 气泡，判空，支持 markdown 渲染 -->
       <template v-else-if="msg.type === 'explain' && msg.role === 'ai'">
-        <div class="bubble-explain md-content" v-html="renderMarkdown(msg.text)"></div>
+        <div
+          v-if="msg.text && (typeof msg.text === 'string' ? msg.text.trim() : Object.keys(msg.text).length > 0)"
+          class="bubble-explain md-content"
+          v-html="renderMarkdown(msg.text)">
+        </div>
       </template>
 
       <!-- 用户赏析提问（普通蓝色气泡/只前缀高亮，无绿色背景）-->
@@ -81,7 +86,7 @@
         <span class="bubble-text">{{ msg.text }}</span>
       </template>
 
-      <!-- 普通文本气泡（上联/下联/系统/其他）-->
+      <!-- 普通文本气泡 -->
       <span v-else class="bubble-text">{{ msg.text }}</span>
     </div>
   </div>
@@ -95,6 +100,22 @@ const md = new MarkdownIt({ breaks: true })
 const props = defineProps(['messages'])
 const listRef = ref()
 
+// 评分最大分配置
+const MAX_SCORE = {
+  duizhang: 40,   // 对仗分满分
+  pingze: 30,     // 平仄分满分
+  content: 30,    // 内容分满分
+  total: 100      // 总分满分
+}
+
+/**
+ * 将单项分数归一化为100分制整数，且兜底
+ */
+function normScore(val, max) {
+  if (typeof val !== 'number' || typeof max !== 'number' || max === 0) return '--'
+  return Math.round((val / max) * 100)
+}
+
 // 自动滚到底部
 watch(() => props.messages.length, async () => {
   await nextTick()
@@ -103,8 +124,19 @@ watch(() => props.messages.length, async () => {
   }
 })
 
-// Markdown 渲染函数
+/**
+ * Markdown 渲染函数（判空/容错）
+ */
 function renderMarkdown(text) {
+  if (typeof text !== 'string') {
+    // 空对象不渲染内容
+    if (text && Object.keys(text).length === 0) return ''
+    try {
+      return md.render(JSON.stringify(text, null, 2))
+    } catch {
+      return ''
+    }
+  }
   return md.render(text || '')
 }
 </script>
@@ -167,7 +199,6 @@ function renderMarkdown(text) {
   flex-direction: column;
   gap: 8px;
   width: 100%;
-  /* markdown 内容内边距已设置，无需重复 */
 }
 .md-content {
   width: 100%;
@@ -222,6 +253,7 @@ function renderMarkdown(text) {
   justify-content: flex-start;
   gap: 28px;
   margin-bottom: 8px;
+  flex-wrap: wrap;
 }
 .score-row {
   display: flex;
@@ -237,6 +269,12 @@ function renderMarkdown(text) {
   font-weight: bold;
   color: #207350;
   margin-top: 2px;
+}
+.score-raw {
+  font-size: 0.93rem;
+  color: #b7b7b7;
+  margin-left: 7px;
+  font-weight: normal;
 }
 .score-detail {
   background: #f3faf6;
