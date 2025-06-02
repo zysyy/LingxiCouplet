@@ -7,15 +7,32 @@
         'bubble',
         msg.role === 'user' ? 'bubble-user' : msg.role === 'ai' ? 'bubble-ai' : 'bubble-system',
         `bubble-type-${msg.type}`,
+        (msg.type === 'explain' && msg.role === 'ai') ? 'bubble-explain-wrap' : '',
       ]"
     >
-      <!-- prefix 题注 -->
-      <span v-if="msg.type === 'up'" class="bubble-prefix">[上联]</span>
-      <span v-else-if="msg.type === 'down'" class="bubble-prefix">[下联]</span>
-      <span v-else-if="msg.type === 'evaluate'" class="bubble-prefix evaluate-prefix">[评分]</span>
-      <span v-else-if="msg.type === 'system'" class="bubble-prefix">[系统]</span>
+      <!-- prefix 题注（赏析的前缀也区分 user/ai）-->
+      <span
+        v-if="msg.type === 'up'"
+        class="bubble-prefix"
+      >[上联]</span>
+      <span
+        v-else-if="msg.type === 'down'"
+        class="bubble-prefix"
+      >[下联]</span>
+      <span
+        v-else-if="msg.type === 'evaluate'"
+        class="bubble-prefix evaluate-prefix"
+      >[评分]</span>
+      <span
+        v-else-if="msg.type === 'explain'"
+        class="bubble-prefix explain-prefix"
+      >[赏析]</span>
+      <span
+        v-else-if="msg.type === 'system'"
+        class="bubble-prefix"
+      >[系统]</span>
 
-      <!-- AI 思考中... 动画（type === 'thinking'）-->
+      <!-- AI 思考中... 动画 -->
       <template v-if="msg.type === 'thinking'">
         <span class="bubble-prefix">[AI]</span>
         <span class="bubble-thinking">
@@ -54,6 +71,16 @@
         </div>
       </template>
 
+      <!-- 赏析（explain）AI 气泡支持 markdown 渲染 -->
+      <template v-else-if="msg.type === 'explain' && msg.role === 'ai'">
+        <div class="bubble-explain md-content" v-html="renderMarkdown(msg.text)"></div>
+      </template>
+
+      <!-- 用户赏析提问（普通蓝色气泡/只前缀高亮，无绿色背景）-->
+      <template v-else-if="msg.type === 'explain' && msg.role === 'user'">
+        <span class="bubble-text">{{ msg.text }}</span>
+      </template>
+
       <!-- 普通文本气泡（上联/下联/系统/其他）-->
       <span v-else class="bubble-text">{{ msg.text }}</span>
     </div>
@@ -62,6 +89,9 @@
 
 <script setup>
 import { ref, watch, nextTick } from 'vue'
+import MarkdownIt from 'markdown-it'
+const md = new MarkdownIt({ breaks: true })
+
 const props = defineProps(['messages'])
 const listRef = ref()
 
@@ -72,6 +102,11 @@ watch(() => props.messages.length, async () => {
     listRef.value.scrollTop = listRef.value.scrollHeight
   }
 })
+
+// Markdown 渲染函数
+function renderMarkdown(text) {
+  return md.render(text || '')
+}
 </script>
 
 <style scoped>
@@ -99,7 +134,6 @@ watch(() => props.messages.length, async () => {
   box-shadow: 0 2px 8px #0001;
   word-break: break-all;
 }
-
 .bubble-user {
   align-self: flex-end;
   background: #e6f0ff;
@@ -117,7 +151,47 @@ watch(() => props.messages.length, async () => {
   font-style: italic;
 }
 
-/* ====== prefix题注样式 ====== */
+/* 仅 AI 赏析用绿色背景 */
+.bubble-explain-wrap .bubble-explain {
+  background: #e9faee !important;
+  color: #185040 !important;
+  border-radius: 10px;
+  padding: 11px 14px 11px 14px;
+  font-size: 1.05rem;
+  line-height: 2;
+  align-items: flex-start;
+  width: 100%;
+}
+.bubble-explain {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  /* markdown 内容内边距已设置，无需重复 */
+}
+.md-content {
+  width: 100%;
+  text-align: left;
+}
+.md-content p {
+  margin: 0.18em 0 0.75em 0;
+  text-align: left;
+  text-indent: 2em;
+  line-height: 2;
+}
+.md-content strong {
+  font-weight: bold;
+}
+.md-content ul, .md-content ol {
+  margin: 0.25em 0 0.5em 2em;
+  padding-left: 0.2em;
+}
+.md-content li {
+  margin-bottom: 0.25em;
+  text-align: left;
+}
+
+/* prefix题注样式 */
 .bubble-prefix {
   font-size: 0.96rem;
   font-weight: 600;
@@ -128,6 +202,10 @@ watch(() => props.messages.length, async () => {
 }
 .evaluate-prefix {
   color: #37a67a;
+  font-size: 1.02rem;
+}
+.explain-prefix {
+  color: #22628e;
   font-size: 1.02rem;
 }
 

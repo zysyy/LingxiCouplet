@@ -21,20 +21,35 @@ interface Message {
   uuid?: string
 }
 
-// 可以留空，或者加一条欢迎消息
 const messages = ref<Message[]>([
   // { role: 'system', text: '欢迎使用灵犀对句 AI！', type: 'system', timestamp: Date.now() }
 ])
 
 /**
- * 用户发送上联消息，AI自动生成下联并评分
+ * 判断输入内容是否为“赏析/解释”问题
+ */
+function isExplainQuestion(input: string) {
+  const text = input.trim()
+  const explainKeywords = [
+    '为什么', '为啥', '怎么', '请解释', '赏析', '能否分析', '详细说', '哪里写得好', '哪里写得不好',
+    '讲讲','讲一讲', '讲一下','不足', '解释', '请评价', '好在哪', '帮我分析', '优缺点', '点评', '可改进', '?', '？'
+  ]
+  return explainKeywords.some(k => text.includes(k))
+}
+
+/**
+ * 用户发送消息
+ * 1. 如果是赏析/解释类问题，走 explain 流程
+ * 2. 否则走上联-下联-评分链路
  */
 async function handleUserSend(text: string) {
+  const isExplain = isExplainQuestion(text)
+
   // 新增用户消息
   messages.value.push({
     role: 'user',
     text,
-    type: 'up',
+    type: isExplain ? 'explain' : 'up',
     timestamp: Date.now(),
   })
 
@@ -48,14 +63,54 @@ async function handleUserSend(text: string) {
   }
   messages.value.push(thinkingMsg)
 
-  // 滚动到底部
   await nextTick()
   scrollToBottom()
 
-  // === 调用后端 /api/couplet 生成下联 ===
+  if (isExplain) {
+    // ==== 调用 /api/explain 或 /api/couplet（带上下联+问题） ====
+    // 你可以新建 /api/explain，或暂时复用 deepseek API
+    let aiReply = ''
+    try {
+      // 如果你已经有了 explain 接口，建议用专门接口
+      // 假设 API 设计为：POST /api/explain  body: { question, context } （context: {up_text, down_text}）
+      // 这里 context 可从对话流查找最近上下联
+      const lastUp = [...messages.value].reverse().find(m => m.type === 'up')?.text || ''
+      const lastDown = [...messages.value].reverse().find(m => m.type === 'down')?.text || ''
+      const res = await axios.post('/api/explain', {
+        question: text,
+        up_text: lastUp,
+        down_text: lastDown
+      })
+      aiReply = res.data?.data?.explanation || res.data?.data || res.data?.msg || '（无详细赏析回复）'
+    } catch (e: any) {
+      aiReply = '赏析接口异常'
+    }
+    // 替换思考气泡为赏析回复
+    const idx = messages.value.findIndex(m => m.type === 'thinking')
+    if (idx !== -1) {
+      messages.value[idx] = {
+        role: 'ai',
+        text: aiReply,
+        type: 'explain',
+        timestamp: Date.now()
+      }
+    } else {
+      messages.value.push({
+        role: 'ai',
+        text: aiReply,
+        type: 'explain',
+        timestamp: Date.now()
+      })
+    }
+    await nextTick()
+    scrollToBottom()
+    return // explain 流程结束
+  }
+
+  // ====== 下面是普通对联生成+评分流程 ======
   let down_text = ''
   try {
-    const res = await axios.post('/api/couplet', { text })  // 注意这里字段名是 text
+    const res = await axios.post('/api/couplet', { text })
     if (res.data?.code === 0) {
       down_text = res.data.data.down_text
     } else {
@@ -75,7 +130,6 @@ async function handleUserSend(text: string) {
       timestamp: Date.now()
     }
   } else {
-    // 万一没找到思考气泡，追加
     messages.value.push({
       role: 'ai',
       text: down_text,
@@ -98,7 +152,7 @@ async function handleUserSend(text: string) {
         const d = evalRes.data.data
         messages.value.push({
           role: 'ai',
-          text: `总分：${d.score}\n对仗分：${d.duizhang_score}\n平仄分：${d.pingze_score}\n详情：${d.detail}`,
+          text: d, // 直接传对象，便于结构化评分
           type: 'evaluate',
           timestamp: Date.now()
         })

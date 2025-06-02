@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, UploadFile, Body
 from fastapi.middleware.cors import CORSMiddleware
 from models import CoupletRequest, EvaluateRequest
 from datetime import datetime, timezone
@@ -195,5 +195,51 @@ def evaluate_couplet(req: EvaluateRequest):
         return {
             "code": 1,
             "msg": f"自动评分失败: {str(e)}",
+            "data": {}
+        }
+
+# ===== explain 路由（赏析/解释） =====
+@app.post("/api/explain")
+def explain(
+    question: str = Body(..., embed=True),
+    up_text: str = Body("", embed=True),
+    down_text: str = Body("", embed=True)
+):
+    """
+    用大模型/DeepSeek对上下联进行‘对话式赏析’回复
+    """
+    headers = {
+        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    # 构造 prompt，建议大模型生成时用序号、换行分段回答
+    prompt = (
+        "你是一位对中国诗词对联非常懂行的AI助手。"
+        "现在用户希望你基于以下上下联和提出的问题进行赏析或详细讲解。"
+        f"\n上联：{up_text}\n下联：{down_text}\n用户问题：{question}\n"
+        "请用自然、详细、有逻辑、有见地的语言来回答用户。请将不同要点尽量用1. 2. 3.等序号分段（或多用换行），便于用户分段阅读。内容不限字数，不要输出多余格式，直接进入点评。"
+    )
+    payload = {
+        "model": "deepseek-chat",
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": 512,
+        "temperature": 0.75
+    }
+    try:
+        resp = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload, timeout=25)
+        resp.raise_for_status()
+        data = resp.json()
+        explanation = data["choices"][0]["message"]["content"].strip()
+        return {
+            "code": 0,
+            "msg": "ok",
+            "data": {
+                "explanation": explanation
+            }
+        }
+    except Exception as e:
+        return {
+            "code": 1,
+            "msg": f"赏析生成失败: {str(e)}",
             "data": {}
         }
