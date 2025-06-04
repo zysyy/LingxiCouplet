@@ -320,12 +320,10 @@ def explain(
         "temperature": 0.75
     }
     try:
-        resp = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload, timeout=25)
+        resp = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload, timeout=40)  # 建议超时时间调大
         resp.raise_for_status()
         data = resp.json()
         explanation = data["choices"][0]["message"]["content"].strip()
-        #print(f"explain raw LLM response: {explanation}")
-
         return {
             "code": 0,
             "msg": "ok",
@@ -334,8 +332,12 @@ def explain(
             }
         }
     except Exception as e:
+        # 失败时也返回explanation字段，兜底报错信息
         return {
             "code": 1,
             "msg": f"赏析生成失败: {str(e)}",
-            "data": {}
+            "data": {
+                "explanation": f"【赏析生成失败，请稍后重试】\n错误详情：{str(e)}"
+            }
         }
+

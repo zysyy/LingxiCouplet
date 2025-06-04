@@ -28,7 +28,7 @@
         </span>
       </template>
 
-      <!-- 评分气泡结构化展示（100分制换算+原始分显示） -->
+      <!-- 评分气泡结构化展示 -->
       <template v-else-if="msg.type === 'evaluate'">
         <div class="bubble-evaluate">
           <template v-if="typeof msg.text === 'object' && msg.text !== null">
@@ -72,7 +72,7 @@
         </div>
       </template>
 
-      <!-- 赏析（explain）AI 气泡，判空，支持 markdown 渲染 -->
+      <!-- 赏析AI气泡（支持Markdown）-->
       <template v-else-if="msg.type === 'explain' && msg.role === 'ai'">
         <div
           v-if="msg.text && (typeof msg.text === 'string' ? msg.text.trim() : Object.keys(msg.text).length > 0)"
@@ -81,7 +81,7 @@
         </div>
       </template>
 
-      <!-- 用户赏析提问（普通蓝色气泡/只前缀高亮，无绿色背景）-->
+      <!-- 用户赏析提问 -->
       <template v-else-if="msg.type === 'explain' && msg.role === 'user'">
         <span class="bubble-text">{{ msg.text }}</span>
       </template>
@@ -93,43 +93,112 @@
 </template>
 
 <script setup>
-import { ref, watch, nextTick } from 'vue'
+import { ref, watch, nextTick, onMounted } from 'vue'
 import MarkdownIt from 'markdown-it'
-const md = new MarkdownIt({ breaks: true })
 
+const md = new MarkdownIt({ breaks: true })
 const props = defineProps(['messages'])
 const listRef = ref()
-
-// 评分最大分配置
 const MAX_SCORE = {
-  duizhang: 40,   // 对仗分满分
-  pingze: 30,     // 平仄分满分
-  content: 30,    // 内容分满分
-  total: 100      // 总分满分
+  duizhang: 40,
+  pingze: 30,
+  content: 30,
+  total: 100
 }
-
-/**
- * 将单项分数归一化为100分制整数，且兜底
- */
 function normScore(val, max) {
   if (typeof val !== 'number' || typeof max !== 'number' || max === 0) return '--'
   return Math.round((val / max) * 100)
 }
 
-// 自动滚到底部
+// --- TTS语音ready支持 ---
+const voiceList = ref([])
+let voicesReady = false
+let pendingSpeak = null
+let lastSpokenId = ''
+
+function getVoice(voices) {
+  return voices.find(v => v.lang === "zh-CN" && v.name?.includes("female"))
+    || voices.find(v => v.lang === "zh-CN")
+    || voices.find(v => v.lang.startsWith("zh"))
+    || voices[0]
+    || null
+}
+
+function innerSpeak(text, lang = "zh-CN") {
+  if (!window.speechSynthesis) return
+  if (!text) return
+  window.speechSynthesis.cancel()
+  const utter = new window.SpeechSynthesisUtterance(text)
+  utter.lang = lang
+  utter.rate = 1.08
+  utter.pitch = 1
+  utter.voice = getVoice(voiceList.value.length ? voiceList.value : window.speechSynthesis.getVoices())
+  window.speechSynthesis.speak(utter)
+}
+
+function speak(text, lang = "zh-CN") {
+  if (!window.speechSynthesis) return
+  // 如果已ready，直接播
+  if (voicesReady && (voiceList.value.length > 0)) {
+    innerSpeak(text, lang)
+  } else {
+    // 语音包还没ready，记下要播的内容，等ready时自动播
+    pendingSpeak = () => innerSpeak(text, lang)
+    window.speechSynthesis.getVoices() // 主动触发事件
+    setTimeout(() => {
+      if (voiceList.value.length > 0 && pendingSpeak) {
+        pendingSpeak()
+        pendingSpeak = null
+      }
+    }, 500)
+  }
+}
+
+function initVoices() {
+  if (!window.speechSynthesis) return
+  // 多刷几次保证 getVoices 不为0
+  voiceList.value = window.speechSynthesis.getVoices() || []
+  if (voiceList.value.length > 0) voicesReady = true
+  window.speechSynthesis.onvoiceschanged = () => {
+    voiceList.value = window.speechSynthesis.getVoices() || []
+    voicesReady = true
+    if (pendingSpeak) {
+      pendingSpeak()
+      pendingSpeak = null
+    }
+  }
+  // 再多刷几次触发语音包加载（Safari/Edge 兼容极好）
+  for (let i = 0; i < 3; ++i) {
+    setTimeout(() => window.speechSynthesis.getVoices(), i * 100)
+  }
+}
+onMounted(initVoices)
+
 watch(() => props.messages.length, async () => {
   await nextTick()
   if (listRef.value) {
     listRef.value.scrollTop = listRef.value.scrollHeight
   }
-})
+  if (props.messages.length > 0) {
+    const lastMsg = props.messages[props.messages.length - 1]
+    const spokenId = (lastMsg.uuid || '') + '_' + lastMsg.timestamp + '_' + lastMsg.type
+    if (
+      lastMsg.role === "ai" &&
+      ["down", "evaluate", "explain"].includes(lastMsg.type) &&
+      lastSpokenId !== spokenId
+    ) {
+      lastSpokenId = spokenId
+      if (lastMsg.type === "evaluate" && typeof lastMsg.text === "object" && lastMsg.text.detail) {
+        speak(lastMsg.text.detail)
+      } else if ((lastMsg.type === "explain" || lastMsg.type === "down") && typeof lastMsg.text === "string") {
+        speak(lastMsg.text)
+      }
+    }
+  }
+}, { immediate: true })
 
-/**
- * Markdown 渲染函数（判空/容错）
- */
 function renderMarkdown(text) {
   if (typeof text !== 'string') {
-    // 空对象不渲染内容
     if (text && Object.keys(text).length === 0) return ''
     try {
       return md.render(JSON.stringify(text, null, 2))
@@ -142,6 +211,7 @@ function renderMarkdown(text) {
 </script>
 
 <style scoped>
+/* ...你的 style 内容完全保留... */
 .bubble-list {
   display: flex;
   flex-direction: column;
@@ -152,8 +222,6 @@ function renderMarkdown(text) {
   padding: 22px 20px 12px 20px;
   background: transparent;
 }
-
-/* 气泡基础样式 */
 .bubble {
   display: flex;
   flex-direction: column;
@@ -182,8 +250,6 @@ function renderMarkdown(text) {
   color: #888;
   font-style: italic;
 }
-
-/* 仅 AI 赏析用绿色背景 */
 .bubble-explain-wrap .bubble-explain {
   background: #e9faee !important;
   color: #185040 !important;
@@ -221,8 +287,6 @@ function renderMarkdown(text) {
   margin-bottom: 0.25em;
   text-align: left;
 }
-
-/* prefix题注样式 */
 .bubble-prefix {
   font-size: 0.96rem;
   font-weight: 600;
@@ -239,8 +303,6 @@ function renderMarkdown(text) {
   color: #22628e;
   font-size: 1.02rem;
 }
-
-/* 评分气泡专属美化 */
 .bubble-evaluate {
   display: flex;
   flex-direction: column;
@@ -286,8 +348,6 @@ function renderMarkdown(text) {
   white-space: pre-line;
   margin-top: 6px;
 }
-
-/* 思考中... 气泡动画 */
 .bubble-thinking {
   display: flex;
   align-items: center;

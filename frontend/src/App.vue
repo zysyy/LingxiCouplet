@@ -2,28 +2,33 @@
   <div class="chat-card">
     <!-- 消息气泡流 -->
     <ChatBubbleList :messages="messages" />
-    <!-- 输入栏 -->
-    <ChatInput @send="handleUserSend" />
+    <!-- 输入栏 + 语音识别按钮 -->
+    <ChatInput @send="handleUserSend" @voice="handleVoiceInput" />
   </div>
 </template>
 
 <script setup lang="ts">
+// 声明全局 window 支持 webkitSpeechRecognition
+declare global {
+  interface Window {
+    webkitSpeechRecognition: any
+  }
+}
+
 import { ref, nextTick } from 'vue'
 import axios from 'axios'
 import ChatBubbleList from './components/ChatBubbleList.vue'
 import ChatInput from './components/ChatInput.vue'
 
 interface Message {
-  role: 'user' | 'ai'
+  role: 'user' | 'ai' | 'system'
   text: string
   type: 'up' | 'down' | 'evaluate' | 'explain' | 'system' | 'thinking'
   timestamp: number
   uuid?: string
 }
 
-const messages = ref<Message[]>([
-  // { role: 'system', text: '欢迎使用灵犀对句 AI！', type: 'system', timestamp: Date.now() }
-])
+const messages = ref<Message[]>([])
 
 /**
  * 判断输入内容是否为“赏析/解释”问题
@@ -38,11 +43,35 @@ function isExplainQuestion(input: string) {
 }
 
 /**
- * 用户发送消息
- * 1. 如果是赏析/解释类问题，走 explain 流程
- * 2. 否则走上联-下联-评分链路
+ * 判断是否为“换一个下联”类指令
  */
+function isRetryCouplet(text: string) {
+  const normText = text.replace(/\s/g, '')
+  const retryTriggers = [
+    '换一个下联',
+    '再来一个下联',
+    '再来一个',
+    '换下联',
+    '新的下联',
+    '新下联',
+    '重新生成下联',
+    '再出一个下联',
+    '你能再出一个下联吗',
+    '你可以给我一片新的下联吗',
+    '再给我一个下联',
+    '再写一个下联'
+  ]
+  return retryTriggers.some(key => normText.includes(key))
+}
+
+// ============ 核心对话发送逻辑 ============
 async function handleUserSend(text: string) {
+  // 指令判定提前
+  if (isRetryCouplet(text)) {
+    await retryCouplet()
+    return
+  }
+
   const isExplain = isExplainQuestion(text)
 
   // 新增用户消息
@@ -67,13 +96,9 @@ async function handleUserSend(text: string) {
   scrollToBottom()
 
   if (isExplain) {
-    // ==== 调用 /api/explain 或 /api/couplet（带上下联+问题） ====
-    // 你可以新建 /api/explain，或暂时复用 deepseek API
+    // ==== 调用 /api/explain ====
     let aiReply = ''
     try {
-      // 如果你已经有了 explain 接口，建议用专门接口
-      // 假设 API 设计为：POST /api/explain  body: { question, context } （context: {up_text, down_text}）
-      // 这里 context 可从对话流查找最近上下联
       const lastUp = [...messages.value].reverse().find(m => m.type === 'up')?.text || ''
       const lastDown = [...messages.value].reverse().find(m => m.type === 'down')?.text || ''
       const res = await axios.post('/api/explain', {
@@ -177,6 +202,89 @@ async function handleUserSend(text: string) {
   }
 }
 
+// ============ 换一个下联（Retry） ============
+async function retryCouplet() {
+  // 找到最近的上联
+  const lastUp = [...messages.value].reverse().find(m => m.type === 'up')?.text
+  if (!lastUp) {
+    messages.value.push({
+      role: 'system',
+      text: '未找到上联，无法重新生成下联。',
+      type: 'system',
+      timestamp: Date.now()
+    })
+    return
+  }
+  // AI思考中气泡
+  messages.value.push({
+    role: 'ai',
+    text: '思考中…',
+    type: 'thinking',
+    timestamp: Date.now(),
+    uuid: `thinking-retry-${Date.now()}`
+  })
+  await nextTick()
+  // 请求新下联
+  let down_text = ''
+  try {
+    const res = await axios.post('/api/couplet', { text: lastUp })
+    down_text = res.data?.data?.down_text || '生成下联失败'
+  } catch (e) {
+    down_text = '下联生成异常'
+  }
+  // 替换思考气泡为新下联
+  const idx = messages.value.findIndex(m => m.type === 'thinking')
+  if (idx !== -1) {
+    messages.value[idx] = {
+      role: 'ai',
+      text: down_text,
+      type: 'down',
+      timestamp: Date.now()
+    }
+  } else {
+    messages.value.push({
+      role: 'ai',
+      text: down_text,
+      type: 'down',
+      timestamp: Date.now()
+    })
+  }
+  await nextTick()
+  // 自动追加评分
+  if (down_text && !down_text.startsWith('生成下联失败')) {
+    try {
+      const evalRes = await axios.post('/api/evaluate', {
+        up_text: lastUp,
+        down_text
+      })
+      if (evalRes.data?.code === 0) {
+        const d = evalRes.data.data
+        messages.value.push({
+          role: 'ai',
+          text: d,
+          type: 'evaluate',
+          timestamp: Date.now()
+        })
+      }
+    } catch (e) {
+      messages.value.push({
+        role: 'ai',
+        text: '评分异常',
+        type: 'evaluate',
+        timestamp: Date.now()
+      })
+    }
+  }
+}
+
+/**
+ * 语音输入和文本输入统一处理
+ */
+function handleVoiceInput(text: string) {
+  if (!text) return
+  handleUserSend(text)
+}
+
 /**
  * 滚动到底部
  */
@@ -198,6 +306,5 @@ function scrollToBottom() {
   flex-direction: column;
   justify-content: flex-end;
   padding: 24px 0 0 0;
-  /* 保证内容上有留白，下方输入栏不挤压 */
 }
 </style>
